@@ -1,12 +1,13 @@
 package chatBotAmgen;
 
-import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.event.KeyEvent;
 import java.awt.event.KeyListener;
 import java.awt.image.BufferedImage;
 import java.io.FileReader;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Properties;
 
 import javax.imageio.ImageIO;
 import javax.swing.ImageIcon;
@@ -15,12 +16,22 @@ import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
+import javax.swing.text.DefaultCaret;
 import javax.xml.parsers.ParserConfigurationException;
 
+import org.ejml.simple.SimpleMatrix;
 import org.json.simple.JSONObject;
 import org.json.simple.parser.JSONParser;
 import org.json.simple.parser.ParseException;
 import org.xml.sax.SAXException;
+
+import edu.stanford.nlp.ling.CoreAnnotations;
+import edu.stanford.nlp.neural.rnn.RNNCoreAnnotations;
+import edu.stanford.nlp.pipeline.Annotation;
+import edu.stanford.nlp.pipeline.StanfordCoreNLP;
+import edu.stanford.nlp.sentiment.SentimentCoreAnnotations.SentimentAnnotatedTree;
+import edu.stanford.nlp.trees.Tree;
+import edu.stanford.nlp.util.CoreMap;
 
 public class chatBotAmgen extends JFrame implements KeyListener{
 
@@ -28,10 +39,10 @@ public class chatBotAmgen extends JFrame implements KeyListener{
 	JTextArea dialog=new JTextArea(20,48);
 	JTextArea input=new JTextArea(2,48);
 	JScrollPane scroll=new JScrollPane(
-		dialog,
-		JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED,
-		JScrollPane.HORIZONTAL_SCROLLBAR_NEVER
-	);
+			dialog,
+			JScrollPane.VERTICAL_SCROLLBAR_ALWAYS,
+			JScrollPane.HORIZONTAL_SCROLLBAR_NEVER
+		);
 	public static void main(String[] args) throws ParserConfigurationException, SAXException, IOException, org.json.simple.parser.ParseException{
 		new chatBotAmgen();
 	}
@@ -41,16 +52,17 @@ public class chatBotAmgen extends JFrame implements KeyListener{
 		setSize(550,600);
 		setResizable(false);
 		setDefaultCloseOperation(EXIT_ON_CLOSE);
-		
+		DefaultCaret caret = (DefaultCaret)dialog.getCaret();
+	    caret.setUpdatePolicy(DefaultCaret.OUT_BOTTOM);		
 		dialog.setEditable(false);
 		input.addKeyListener(this);
 		BufferedImage img = ImageIO.read(chatBotAmgen.class.getClassLoader().getResourceAsStream("images.png"));
         JLabel label = new JLabel(new ImageIcon(img));
-		
-		p.add(scroll);
 		label.setBounds(0,400, 200, 200);
-		dialog.setBounds(0, 0,590, 397 );
-		input.setBounds(200,400,590,600);
+		scroll.setBounds(530,0,16,400);
+		dialog.setBounds(0, 0,530, 397 );
+		input.setBounds(200,400,340,600);
+		p.add(scroll,dialog);
 		p.add(dialog);
 		p.add(input);
 		p.setBackground(new Color(100,80,10));
@@ -68,6 +80,8 @@ public class chatBotAmgen extends JFrame implements KeyListener{
 			input.setText("");
 			addText("-->You:\t"+quote);
 			quote.trim();
+			analyzeSentiment sent=new analyzeSentiment();
+			sent.sentiment(quote);
 			try {
 				output_array=train(quote);
 			} catch (ParserConfigurationException | SAXException | IOException | ParseException e1) {
@@ -94,17 +108,7 @@ public class chatBotAmgen extends JFrame implements KeyListener{
 	public void addText(String str){
 		dialog.setText(dialog.getText()+str);
 	}
-	
-	public boolean inArray(String in,String[] str){
-		boolean match=false;
-		for(int i=0;i<str.length;i++){
-			if(str[i].equals(in)){
-				match=true;
-			}
-		}
-		return match;
-	}
-	
+
 	public static String[] train(String S) throws ParserConfigurationException, SAXException, IOException, org.json.simple.parser.ParseException
 	{
 		JSONParser parser = new JSONParser();
@@ -113,6 +117,8 @@ public class chatBotAmgen extends JFrame implements KeyListener{
             Object obj = parser.parse(new FileReader("C:/Users/amishr02/workspace/chatBotAmgen/src/chatBotAmgen/conversation.json"));          
             JSONObject jsonObject = (JSONObject) obj;
             int size=jsonObject.size();
+            String temp[]=null;
+            double max_match=Double.NEGATIVE_INFINITY;
             for(int i=1;i<=size;i++){
             String var="list"+i;
             JSONObject jsonObject1=(JSONObject)jsonObject.get(var);
@@ -121,10 +127,19 @@ public class chatBotAmgen extends JFrame implements KeyListener{
             s=jsonObject1.get("input").toString();
             String input[]=s.split(",");
             for (String inp: input) 
-            	{inp=inp.replaceAll("[^A-Za-z0-9'. ]", "").trim();
-                if (inp.equals(S))
-                	return removeOutputPunctuation(output);}
+            	{inp=inp.replaceAll("[^A-Za-z0-9'. ]", "").trim();           	
+            	double percent_match=match(inp.toLowerCase(),S.toLowerCase());
+            	if(max_match<percent_match)
+            	{
+            		max_match=percent_match;
+            		temp=output.clone();
+            	}
+                }
             }
+            if(max_match>70.0)
+            return removeOutputPunctuation(temp);
+            else
+            return null;
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -137,4 +152,92 @@ public class chatBotAmgen extends JFrame implements KeyListener{
          }
 		 return output;
 	}
+	public static double similarity(String s1, String s2) {
+	    String longer = s1, shorter = s2;
+	    if (s1.length() < s2.length()) {
+	      longer = s2; shorter = s1;
+	    }
+	    int longerLength = longer.length();
+	    if (longerLength == 0) { return 1.0; }	    
+	    return (longerLength - editDistance(longer, shorter)) / (double) longerLength;
+	  }
+	  public static int editDistance(String s1, String s2) {
+	    int[] costs = new int[s2.length() + 1];
+	    for (int i = 0; i <= s1.length(); i++) {
+	      int lastValue = i;
+	      for (int j = 0; j <= s2.length(); j++) {
+	        if (i == 0)
+	          costs[j] = j;
+	        else {
+	          if (j > 0) {
+	            int newValue = costs[j - 1];
+	            if (s1.charAt(i - 1) != s2.charAt(j - 1))
+	              newValue = Math.min(Math.min(newValue, lastValue),
+	                  costs[j]) + 1;
+	            costs[j - 1] = lastValue;
+	            lastValue = newValue;
+	          }
+	        }
+	      }
+	      if (i > 0)
+	        costs[s2.length()] = lastValue;
+	    }
+	    return costs[s2.length()];
+	  }
+
+	  public static double match(String s, String t) {
+	    return (similarity(s, t)*100);
+	  }	  
+}
+
+class NLP {
+static StanfordCoreNLP pipeline;
+
+public static void init() {
+    Properties props = new Properties();
+    props.setProperty("annotators", "tokenize, ssplit, parse, sentiment");
+    pipeline = new StanfordCoreNLP(props);
+}
+
+public static int findSentiment(String tweet) {
+
+    int mainSentiment = 0;
+    if (tweet != null && tweet.length() > 0) {
+        int longest = 0;
+        Annotation annotation = pipeline.process(tweet);
+        for (CoreMap sentence : annotation
+                .get(CoreAnnotations.SentencesAnnotation.class)) {
+            Tree tree = sentence
+                    .get(SentimentAnnotatedTree.class);
+            int sentiment = RNNCoreAnnotations.getPredictedClass(tree);
+            SimpleMatrix sentiment_new = RNNCoreAnnotations.getPredictions(tree);             
+            String partText = sentence.toString();
+            if (partText.length() > longest) {
+                mainSentiment = sentiment;
+                longest = partText.length();
+            }
+        }
+    }
+    return mainSentiment;
+    }
+}
+
+class analyzeSentiment {
+    public static void sentiment(String S) {
+        ArrayList<String> tweets = new ArrayList<String>();
+        tweets.add(S);
+        NLP.init();
+        for(String tweet : tweets) {
+            int mainSentiment= NLP.findSentiment(tweet);
+            if (mainSentiment == 2 || mainSentiment > 4 || mainSentiment < 0) {
+                System.out.println("Neutral");
+            }
+            else if (mainSentiment > 2) {
+                System.out.println("Good");
+            }
+            else {
+                System.out.println("Bad");
+            }
+        }
+    }
 }
