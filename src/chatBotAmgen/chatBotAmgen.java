@@ -1,5 +1,5 @@
 package chatBotAmgen;
-
+import org.alicebot.ab.*;
 import java.awt.Color;
 import java.awt.event.KeyEvent;
 import java.awt.event.KeyListener;
@@ -62,7 +62,7 @@ public class chatBotAmgen extends JFrame implements KeyListener{
 		scroll.setBounds(530,0,16,400);
 		dialog.setBounds(0, 0,530, 397 );
 		input.setBounds(200,400,340,600);
-		p.add(scroll,dialog);
+		p.add(scroll);
 		p.add(dialog);
 		p.add(input);
 		p.setBackground(new Color(100,80,10));
@@ -81,7 +81,9 @@ public class chatBotAmgen extends JFrame implements KeyListener{
 			addText("-->You:\t"+quote);
 			quote.trim();
 			analyzeSentiment sent=new analyzeSentiment();
-			sent.sentiment(quote);
+			bot b=new bot();
+			b.callAlice(quote);
+			//sent.sentiment(quote);
 			try {
 				output_array=train(quote);
 			} catch (ParserConfigurationException | SAXException | IOException | ParseException e1) {
@@ -199,12 +201,12 @@ public static void init() {
     pipeline = new StanfordCoreNLP(props);
 }
 
-public static int findSentiment(String tweet) {
+public static int findSentiment(String statement) {
 
     int mainSentiment = 0;
-    if (tweet != null && tweet.length() > 0) {
+    if (statement != null && statement.length() > 0) {
         int longest = 0;
-        Annotation annotation = pipeline.process(tweet);
+        Annotation annotation = pipeline.process(statement);
         for (CoreMap sentence : annotation
                 .get(CoreAnnotations.SentencesAnnotation.class)) {
             Tree tree = sentence
@@ -224,20 +226,36 @@ public static int findSentiment(String tweet) {
 
 class analyzeSentiment {
     public static void sentiment(String S) {
-        ArrayList<String> tweets = new ArrayList<String>();
-        tweets.add(S);
+        ArrayList<String> statements = new ArrayList<String>();
+        statements.add(S);
         NLP.init();
-        for(String tweet : tweets) {
-            int mainSentiment= NLP.findSentiment(tweet);
+        for(String statement : statements) {
+            int mainSentiment= NLP.findSentiment(statement);
             if (mainSentiment == 2 || mainSentiment > 4 || mainSentiment < 0) {
                 System.out.println("Neutral");
             }
-            else if (mainSentiment > 2) {
+            else if (mainSentiment >= 3) {
                 System.out.println("Good");
             }
-            else {
-                System.out.println("Bad");
+            else if (mainSentiment == 1) {
+                System.out.println("Very Bad");
+            }
+            else{
+            	System.out.println("Bad ");
             }
         }
     }
+}
+class bot{
+	
+	public void callAlice(String S){
+	String path="C:/Users/amishr02/Downloads/program-ab-0.0.4.3";
+	String botname="super";
+	System.out.println(path);
+	Bot bot = new Bot(botname, path);
+	Chat chatSession = new Chat(bot);
+	String request = S;
+	String response = chatSession.multisentenceRespond(request);
+	System.out.println(response);}
+	
 }
